@@ -1,0 +1,24 @@
+[flake8]
+ignore = E203, E501, W503,  # handled by black
+         ANN101, ANN204,
+         D100,
+         D101,
+         D102,
+         D103,
+         D104,  # no docstring in public package
+         D105,  # Missing docstring in magic method
+         D200,  # One-line docstring should fit on one line with quotes
+         D107,  #  Missing docstring in __init__
+
+exclude =
+    *_venv
+    venv_*
+    venv
+max-cognitive-complexity = 10
+per-file-ignores =
+    # No docs and annotation required for tests
+    test*.py: D10, D101, D103, S101, ANN
+    # Skip unused imports in __init__ files
+    __init__.py: F401
+
+doctests = True
