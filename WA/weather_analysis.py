@@ -8,6 +8,7 @@ from geopy.geocoders import Nominatim
 
 BASE = r"D:\Programms\WA\WA\data"
 corrupted_data = []
+city_center = {}
 
 
 def main():
@@ -47,20 +48,62 @@ def erase_corrupted_hotel(data, row):
 
 #  prep geolocator
 geolocator = Nominatim(user_agent="nvm")
-reverse_coords = partial(geolocator.reverse, language="en", timeout=5)
+reverse_coords = partial(geolocator.reverse, language="en", timeout=2)
 
 
 def address_worker(row: list) -> list:
-    location = reverse_coords(f"{row[-2]}, {row[-1]}")
-    if not row[2]:
-        row[2] = location.raw["address"]["country_code"].upper()
-    if not row[3]:
-        if "city" in location.raw["address"]:
-            row[3] = location.raw["address"]["city"]
-        elif "town" in location.raw["address"]:
-            row[3] = location.raw["address"]["town"]
+    location = reverse_coords(f"{row[4]}, {row[5]}")
+    country_code = location.raw["address"]["country_code"].upper()
+
+    if "city" in location.raw["address"]:
+        city = location.raw["address"]["city"]
+    elif "town" in location.raw["address"]:
+        city = location.raw["address"]["town"]
+    elif "village" in location.raw["address"]:
+        city = location.raw["address"]["village"]
+    else:
+        city = None
+
+    if row[2] != country_code:
+        row[2] = country_code
+    if row[3] != city and city is not None:
+        row[3] = city
+
     row.append(location.address)
+
+    get_city_center(row)
     return row
+
+
+def get_city_center(row):
+    country = row[2]
+    city = row[3]
+    latitude = row[4]
+    longitude = row[5]
+
+    if country not in city_center:
+        city_center[country] = {}
+
+    if city not in city_center[country]:
+        city_center[country][city] = {
+            "min_lat": latitude,
+            "max_lat": latitude,
+            "min_lon": longitude,
+            "max_lon": longitude,
+        }
+    else:
+        city_center[country][city]["min_lat"] = min(
+            city_center[country][city]["min_lat"], latitude
+        )
+        city_center[country][city]["max_lat"] = max(
+            city_center[country][city]["max_lat"], latitude
+        )
+        city_center[country][city]["min_lon"] = min(
+            city_center[country][city]["min_lon"], longitude
+        )
+        city_center[country][city]["max_lon"] = max(
+            city_center[country][city]["max_lon"], longitude
+        )
 
 
 def run_pool_of_address_workers(hotels: list) -> list:
