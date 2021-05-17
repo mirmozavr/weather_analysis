@@ -1,10 +1,13 @@
-import csv
 import zipfile
 from functools import partial
-from io import TextIOWrapper
 from multiprocessing import Pool, cpu_count
 
+import pandas as pd
 from geopy.geocoders import Nominatim
+
+pd.set_option("isplay.max_rows", None)
+pd.set_option("display.max_columns", 10)
+pd.set_option("display.width", 1600)
 
 BASE = r"D:\Programms\WA\WA\data"
 corrupted_data = []
@@ -13,37 +16,17 @@ city_center = {}
 
 def main():
     #  preprocess data
-    data = []
     with zipfile.ZipFile(BASE + "\\hotels.zip") as myzip:
         files = [item.filename for item in myzip.infolist()]
-        for file in files:
-            with myzip.open(file) as csvfile:
-                reader = csv.reader(TextIOWrapper(csvfile))
-                data.extend(
-                    item
-                    for item in reader
-                    if (all([item[1], item[4], item[5]]) and item[0] != "Id")
-                )
-    validate_hotels_data(data)
-    #  data is ready here
-    run_pool_of_address_workers(data[:10])  # shortened dataset
+        df = pd.concat(
+            [pd.read_csv(myzip.open(file)) for file in files[:1]]
+        )  # shortened
 
-
-def validate_hotels_data(data: list) -> None:
-    for row in data:
-        try:
-            row[-2] = float(row[-2])
-            row[-1] = float(row[-1])
-        except ValueError:
-            erase_corrupted_hotel(data, row)
-            break
-        if abs(row[-2]) >= 90 or abs(row[-1]) >= 180:
-            erase_corrupted_hotel(data, row)
-
-
-def erase_corrupted_hotel(data, row):
-    corrupted_data.append(row)
-    data.remove(row)
+    # preprocess dataset
+    df.drop(["Id"], axis=1, inplace=True)
+    df["Latitude"] = pd.to_numeric(df["Latitude"], errors="coerce")
+    df["Longitude"] = pd.to_numeric(df["Longitude"], errors="coerce")
+    df = df[(abs(df["Latitude"]) < 90) & (abs(df["Longitude"]) < 180)]
 
 
 #  prep geolocator
@@ -51,8 +34,8 @@ geolocator = Nominatim(user_agent="nvm")
 reverse_coords = partial(geolocator.reverse, language="en", timeout=2)
 
 
-def address_worker(row: list) -> list:
-    location = reverse_coords(f"{row[4]}, {row[5]}")
+def address_worker(row):
+    location = reverse_coords(f"{row['Latitude']}, {row['Longitude']}")
     country_code = location.raw["address"]["country_code"].upper()
 
     if "city" in location.raw["address"]:
@@ -64,46 +47,17 @@ def address_worker(row: list) -> list:
     else:
         city = None
 
-    if row[2] != country_code:
-        row[2] = country_code
-    if row[3] != city and city is not None:
-        row[3] = city
+    if row["Country"] != country_code:
+        row["Country"] = country_code
+    if row["City"] != city and city is not None:
+        row["City"] = city
 
-    row.append(location.address)
-
-    get_city_center(row)
-    return row
+    row["Address"] = location.address
 
 
-def get_city_center(row):
-    country = row[2]
-    city = row[3]
-    latitude = row[4]
-    longitude = row[5]
-
-    if country not in city_center:
-        city_center[country] = {}
-
-    if city not in city_center[country]:
-        city_center[country][city] = {
-            "min_lat": latitude,
-            "max_lat": latitude,
-            "min_lon": longitude,
-            "max_lon": longitude,
-        }
-    else:
-        city_center[country][city]["min_lat"] = min(
-            city_center[country][city]["min_lat"], latitude
-        )
-        city_center[country][city]["max_lat"] = max(
-            city_center[country][city]["max_lat"], latitude
-        )
-        city_center[country][city]["min_lon"] = min(
-            city_center[country][city]["min_lon"], longitude
-        )
-        city_center[country][city]["max_lon"] = max(
-            city_center[country][city]["max_lon"], longitude
-        )
+# ?????????
+def process(df):
+    df.apply(address_worker, axis=1)
 
 
 def run_pool_of_address_workers(hotels: list) -> list:
