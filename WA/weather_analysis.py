@@ -28,18 +28,27 @@ def main():
     df["Longitude"] = pd.to_numeric(df["Longitude"], errors="coerce")
     df = df[(abs(df["Latitude"]) < 90) & (abs(df["Longitude"]) < 180)]
 
-    df = df[:10]
+    df = df[:10]  # !!!!!!!! shortened
     df["Address"] = df["Latitude"].astype("str") + ", " + df["Longitude"].astype("str")
-    df["Address"] = df["Address"].apply(address_worker)
+
+    result = run_pool_of_address_workers(df)
+    df["Address"] = [item[0] for item in result]
+    df["Country"] = [item[1] for item in result]
+    df["City"] = [item[2] for item in result]
 
 
 #  prep geolocator
 geolocator = Nominatim(user_agent="nvm")
-reverse_coords = partial(geolocator.reverse, language="en", timeout=2)
+reverse_coords = partial(geolocator.reverse, language="en", timeout=5)
 
 
-def address_worker(coord_string: str):
-    location = reverse_coords(coord_string)
+def run_pool_of_address_workers(df):
+    with Pool(processes=cpu_count()) as pool:
+        return pool.map(address_worker, zip(df["Address"], df["City"]))
+
+
+def address_worker(data: tuple):
+    location = reverse_coords(data[0])
     country_code = location.raw["address"]["country_code"].upper()
 
     if "city" in location.raw["address"]:
@@ -49,19 +58,8 @@ def address_worker(coord_string: str):
     elif "village" in location.raw["address"]:
         city = location.raw["address"]["village"]
     else:
-        city = None
-
-    return location.address
-
-
-# ?????????
-def process(df):
-    df.apply(address_worker, axis=1)
-
-
-def run_pool_of_address_workers(hotels: list) -> list:
-    with Pool(processes=cpu_count()) as pool:
-        return pool.map(address_worker, hotels)
+        city = data[2]
+    return location.address, country_code, city
 
 
 if __name__ == "__main__":
