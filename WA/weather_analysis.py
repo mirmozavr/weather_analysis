@@ -28,14 +28,18 @@ def main():
     df["Longitude"] = pd.to_numeric(df["Longitude"], errors="coerce")
     df = df[(abs(df["Latitude"]) < 90) & (abs(df["Longitude"]) < 180)]
 
+    df = df[:10]
+    df["Address"] = df["Latitude"].astype("str") + ", " + df["Longitude"].astype("str")
+    df["Address"] = df["Address"].apply(address_worker)
+
 
 #  prep geolocator
 geolocator = Nominatim(user_agent="nvm")
 reverse_coords = partial(geolocator.reverse, language="en", timeout=2)
 
 
-def address_worker(row):
-    location = reverse_coords(f"{row['Latitude']}, {row['Longitude']}")
+def address_worker(coord_string: str):
+    location = reverse_coords(coord_string)
     country_code = location.raw["address"]["country_code"].upper()
 
     if "city" in location.raw["address"]:
@@ -47,12 +51,7 @@ def address_worker(row):
     else:
         city = None
 
-    if row["Country"] != country_code:
-        row["Country"] = country_code
-    if row["City"] != city and city is not None:
-        row["City"] = city
-
-    row["Address"] = location.address
+    return location.address
 
 
 # ?????????
