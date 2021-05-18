@@ -1,10 +1,9 @@
+import asyncio
 import zipfile
 from functools import partial
 from multiprocessing import Pool, cpu_count
 
 import aiohttp
-import asyncio
-
 import pandas as pd
 from geopy.geocoders import Nominatim
 
@@ -36,11 +35,15 @@ def main():
 
 async def get_forecast(row: "pd.core.frame.Pandas"):
     async with aiohttp.ClientSession() as session:
-        async with session.get(ow_url_base + "forecast", params=[("lat", row.center_lat),
-                                                    ("lon", row.center_lon),
-                                                    ("appid", API_OW),
-                                                    ("units", "metric"),
-                                                    ]) as resp:
+        async with session.get(
+            ow_url_base + "forecast",
+            params=[
+                ("lat", row.center_lat),
+                ("lon", row.center_lon),
+                ("appid", API_OW),
+                ("units", "metric"),
+            ],
+        ) as resp:
             forecast = await resp.json()
 
 
@@ -67,13 +70,26 @@ def calc_city_centres(df: pd.DataFrame) -> pd.DataFrame:
     # find city center coordinates
     city_group = df.groupby(["Country", "City"])
     min_lat_and_lon = city_group.min()
-    min_lat_and_lon.rename(columns={"Latitude": "min_lat", "Longitude": "min_lon"}, inplace=True)
+    min_lat_and_lon.rename(
+        columns={"Latitude": "min_lat", "Longitude": "min_lon"}, inplace=True
+    )
     max_lat_and_lon = city_group.max()
-    max_lat_and_lon.rename(columns={"Latitude": "max_lat", "Longitude": "max_lon"}, inplace=True)
+    max_lat_and_lon.rename(
+        columns={"Latitude": "max_lat", "Longitude": "max_lon"}, inplace=True
+    )
     city_centres = pd.concat(
-        [min_lat_and_lon.loc[:, ["min_lat", "min_lon"]], max_lat_and_lon.loc[:, ["max_lat", "max_lon"]]], axis=1)
-    city_centres["center_lat"] = (city_centres["min_lat"] + city_centres["max_lat"]) * 0.5
-    city_centres["center_lon"] = (city_centres["min_lon"] + city_centres["max_lon"]) * 0.5
+        [
+            min_lat_and_lon.loc[:, ["min_lat", "min_lon"]],
+            max_lat_and_lon.loc[:, ["max_lat", "max_lon"]],
+        ],
+        axis=1,
+    )
+    city_centres["center_lat"] = (
+        city_centres["min_lat"] + city_centres["max_lat"]
+    ) * 0.5
+    city_centres["center_lon"] = (
+        city_centres["min_lon"] + city_centres["max_lon"]
+    ) * 0.5
     return city_centres
 
 
