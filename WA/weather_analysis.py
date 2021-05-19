@@ -3,6 +3,7 @@ import zipfile
 from datetime import datetime, timedelta
 from functools import partial
 from multiprocessing import Pool, cpu_count
+from typing import List, Tuple
 
 import aiohttp
 import pandas as pd
@@ -14,6 +15,7 @@ pd.set_option("display.max_columns", 10)
 pd.set_option("display.width", 1600)
 
 base_folder = r"D:\Programms\WA\WA\data"
+output_folder = r"D:\Programms\WA\WA\data"
 
 ow_url_forecast = "http://api.openweathermap.org/data/2.5/forecast"
 ow_url_historical = "http://api.openweathermap.org/data/2.5/onecall/timemachine"
@@ -25,7 +27,8 @@ reverse_coords = partial(geolocator.reverse, language="en", timeout=5)
 
 def main():
     df = prepare_data(base_folder)
-
+    df.drop(["Id"], axis=1, inplace=True)
+    # df = df[:5]  # shortened
     # fill address and fix incorrect country code and city
     # result = run_pool_of_address_workers(df)
     # df["Address"] = [item[0] for item in result]
@@ -35,27 +38,23 @@ def main():
     city_centres = calc_city_centres(df)
 
     weather = asyncio.run(get_weather(city_centres))
-    # for _ in weather:
-    #     print(_)
-    weather_df = pd.DataFrame(weather)
-    print(weather_df)
+
+    analysis_tasks(weather)
 
 
 def prepare_data(base: str) -> pd.DataFrame:
-    #  preprocess data
+    #  read zip
     with zipfile.ZipFile(base + "\\hotels.zip") as myzip:
         files = [item.filename for item in myzip.infolist()]
         df = pd.concat(
             [pd.read_csv(myzip.open(file)) for file in files[:1]]  # !!!!!!!! shortened
-        )  # shortened
+        )
 
     # preprocess dataset
-    df.drop(["Id"], axis=1, inplace=True)
     df["Latitude"] = pd.to_numeric(df["Latitude"], errors="coerce")
     df["Longitude"] = pd.to_numeric(df["Longitude"], errors="coerce")
     df = df[(abs(df["Latitude"]) < 90) & (abs(df["Longitude"]) < 180)]
 
-    # df = df[:10]  # !!!!!!!! shortened
     df["Address"] = df["Latitude"].astype("str") + ", " + df["Longitude"].astype("str")
     return df
 
@@ -65,7 +64,7 @@ def run_pool_of_address_workers(df: pd.DataFrame):
         return pool.map(address_worker, zip(df["Address"], df["City"]))
 
 
-def address_worker(data: tuple):
+def address_worker(data: Tuple) -> Tuple:
     location = reverse_coords(data[0])
     country_code = location.raw["address"]["country_code"].upper()
 
@@ -107,18 +106,18 @@ def calc_city_centres(df: pd.DataFrame) -> pd.DataFrame:
     return city_centres
 
 
-async def get_weather(city_centres):
+async def get_weather(city_centres: pd.DataFrame) -> pd.DataFrame:
     weather = []
     async with aiohttp.ClientSession() as session:
         for row in city_centres[:3].itertuples():  # !!shortened
-            # print(row.Index, row.center_lat, row.center_lon)
             weather += await get_forecast(session, row)
             weather += await get_historical_weather(session, row)
-            # print("***" * 10)
-        return weather
+        return pd.DataFrame(weather)
 
 
-async def get_forecast(session: aiohttp.ClientSession, row: "pd.core.frame.Pandas"):
+async def get_forecast(
+    session: aiohttp.ClientSession, row: "pd.core.frame.Pandas"
+) -> List:
     async with session.get(
         ow_url_forecast,
         params=[
@@ -134,7 +133,7 @@ async def get_forecast(session: aiohttp.ClientSession, row: "pd.core.frame.Panda
             city_weather.append(
                 {
                     "city": row.Index,
-                    "day": day["dt"],
+                    "day": datetime.fromtimestamp(day["dt"]),
                     "temp": day["main"]["temp"],
                     "temp_min": day["main"]["temp_min"],
                     "temp_max": day["main"]["temp_max"],
@@ -145,7 +144,7 @@ async def get_forecast(session: aiohttp.ClientSession, row: "pd.core.frame.Panda
 
 async def get_historical_weather(
     session: aiohttp.ClientSession, row: "pd.core.frame.Pandas"
-):
+) -> List:
     date_stamps = [
         int(datetime.timestamp(datetime.today() - timedelta(days=i)))
         for i in range(1, 6)
@@ -169,13 +168,47 @@ async def get_historical_weather(
             city_weather.append(
                 {
                     "city": row.Index,
-                    "day": forecast["current"]["dt"],
+                    "day": datetime.fromtimestamp(forecast["current"]["dt"]),
                     "temp": temp,
                     "temp_min": temp_min,
                     "temp_max": temp_max,
                 }
             )
     return city_weather
+
+
+def analysis_tasks(weather_df: pd.DataFrame):
+    # city/day with max and min temp
+    temp_column = weather_df["temp"]
+    min_temp_index = temp_column.idxmin()
+    max_temp_index = temp_column.idxmax()
+    weather_df.loc[min_temp_index].to_csv(
+        path_or_buf=(output_folder + r"\coldest_city_and_day.csv")
+    )
+    weather_df.loc[max_temp_index].to_csv(
+        path_or_buf=(output_folder + r"\hottest_city_and_day.csv")
+    )
+
+    # city with max temp change during the day
+    weather_df["day_temp_delta"] = weather_df["temp_max"] - weather_df["temp_min"]
+    max_change_of_day_temp_index = weather_df["day_temp_delta"].idxmax()
+    weather_df.loc[max_change_of_day_temp_index].to_csv(
+        path_or_buf=(output_folder + r"\biggest_daily_temp_change_city_and_day.csv")
+    )
+
+    # city with biggest max temp change
+    grouped = weather_df.groupby(["city"])
+
+    max_temps = grouped.agg(
+        max_temp_low=("temp_max", "min"),
+        max_temp_high=("temp_max", "max"),
+    )
+    max_temps["max_temp_delta"] = max_temps["max_temp_high"] - max_temps["max_temp_low"]
+    max_temps.reset_index(inplace=True)
+    max_temp_delta_index = max_temps["max_temp_delta"].idxmax()
+    max_temps.loc[max_temp_delta_index].to_csv(
+        path_or_buf=(output_folder + r"\biggest_max_temp_change_city_and_day.csv")
+    )
 
 
 if __name__ == "__main__":
