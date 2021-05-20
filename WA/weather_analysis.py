@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from functools import partial
 from multiprocessing import Pool, cpu_count
 from typing import List, Tuple
+import os
 
 import aiohttp
 import pandas as pd
@@ -27,13 +28,15 @@ reverse_coords = partial(geolocator.reverse, language="en", timeout=5)
 
 def main():
     df = prepare_data(base_folder)
-    df.drop(["Id"], axis=1, inplace=True)
+    df.drop(["Id", "index"], axis=1, inplace=True)
     # df = df[:5]  # shortened
     # fill address and fix incorrect country code and city
     # result = run_pool_of_address_workers(df)
     # df["Address"] = [item[0] for item in result]
     # df["Country"] = [item[1] for item in result]
     # df["City"] = [item[2] for item in result]
+
+    export_address_data(df)
 
     city_centres = calc_city_centres(df)
 
@@ -56,6 +59,7 @@ def prepare_data(base: str) -> pd.DataFrame:
     df = df[(abs(df["Latitude"]) < 90) & (abs(df["Longitude"]) < 180)]
 
     df["Address"] = df["Latitude"].astype("str") + ", " + df["Longitude"].astype("str")
+    df.reset_index(inplace=True)
     return df
 
 
@@ -77,6 +81,21 @@ def address_worker(data: Tuple) -> Tuple:
     else:
         city = data[2]
     return location.address, country_code, city
+
+
+def export_address_data(df: pd.DataFrame) -> None:
+    grouped = df.groupby(["Country", "City"])
+    chunk_size = 100
+    for label, group in grouped:
+        path = f"{output_folder}\\{label[0]}\\{label[1]}"
+        os.makedirs(path, exist_ok=True)
+
+        list_of_chunks = (group.iloc[i:i + chunk_size] for i in range(0, len(group), chunk_size))
+        for num, chunk in enumerate(list_of_chunks):
+            file_name = f"{path}\\{label[0]}_{label[1]}_hotels_p{num:03d}.csv"
+            chunk.to_csv(
+                path_or_buf=file_name, columns=["Name", "Country", "City", "Address", "Latitude", "Longitude"],
+            )
 
 
 def calc_city_centres(df: pd.DataFrame) -> pd.DataFrame:
