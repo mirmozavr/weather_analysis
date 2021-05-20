@@ -1,15 +1,16 @@
 import asyncio
+import os
 import zipfile
 from datetime import datetime, timedelta
 from functools import partial
 from multiprocessing import Pool, cpu_count
 from typing import List, Tuple
-import os
 
 import aiohttp
 import pandas as pd
 from geopy.geocoders import Nominatim
 from keys import API_OW
+from matplotlib import pyplot as plt
 
 pd.set_option("isplay.max_rows", None)
 pd.set_option("display.max_columns", 10)
@@ -29,12 +30,12 @@ reverse_coords = partial(geolocator.reverse, language="en", timeout=5)
 def main():
     df = prepare_data(base_folder)
     df.drop(["Id", "index"], axis=1, inplace=True)
-    # df = df[:5]  # shortened
+
     # fill address and fix incorrect country code and city
-    # result = run_pool_of_address_workers(df)
-    # df["Address"] = [item[0] for item in result]
-    # df["Country"] = [item[1] for item in result]
-    # df["City"] = [item[2] for item in result]
+    result = run_pool_of_address_workers(df)
+    df["Address"] = [item[0] for item in result]
+    df["Country"] = [item[1] for item in result]
+    df["City"] = [item[2] for item in result]
 
     export_address_data(df)
 
@@ -43,6 +44,8 @@ def main():
     weather = asyncio.run(get_weather(city_centres))
 
     analysis_tasks(weather)
+
+    save_plots(weather)
 
 
 def prepare_data(base: str) -> pd.DataFrame:
@@ -79,7 +82,7 @@ def address_worker(data: Tuple) -> Tuple:
     elif "village" in location.raw["address"]:
         city = location.raw["address"]["village"]
     else:
-        city = data[2]
+        city = data[1]
     return location.address, country_code, city
 
 
@@ -90,11 +93,14 @@ def export_address_data(df: pd.DataFrame) -> None:
         path = f"{output_folder}\\{label[0]}\\{label[1]}"
         os.makedirs(path, exist_ok=True)
 
-        list_of_chunks = (group.iloc[i:i + chunk_size] for i in range(0, len(group), chunk_size))
+        list_of_chunks = (
+            group.iloc[i : i + chunk_size] for i in range(0, len(group), chunk_size)
+        )
         for num, chunk in enumerate(list_of_chunks):
             file_name = f"{path}\\{label[0]}_{label[1]}_hotels_p{num:03d}.csv"
             chunk.to_csv(
-                path_or_buf=file_name, columns=["Name", "Country", "City", "Address", "Latitude", "Longitude"],
+                path_or_buf=file_name,
+                columns=["Name", "Country", "City", "Address", "Latitude", "Longitude"],
             )
 
 
@@ -129,8 +135,8 @@ async def get_weather(city_centres: pd.DataFrame) -> pd.DataFrame:
     weather = []
     async with aiohttp.ClientSession() as session:
         for row in city_centres[:3].itertuples():  # !!shortened
-            weather += await get_forecast(session, row)
             weather += await get_historical_weather(session, row)
+            weather += await get_forecast(session, row)
         return pd.DataFrame(weather)
 
 
@@ -152,7 +158,7 @@ async def get_forecast(
             city_weather.append(
                 {
                     "city": row.Index,
-                    "day": datetime.fromtimestamp(day["dt"]),
+                    "day": datetime.fromtimestamp(day["dt"]).date(),
                     "temp": day["main"]["temp"],
                     "temp_min": day["main"]["temp_min"],
                     "temp_max": day["main"]["temp_max"],
@@ -166,7 +172,7 @@ async def get_historical_weather(
 ) -> List:
     date_stamps = [
         int(datetime.timestamp(datetime.today() - timedelta(days=i)))
-        for i in range(1, 6)
+        for i in range(5, 0, -1)
     ]
     city_weather = []
     for date in date_stamps:
@@ -187,7 +193,7 @@ async def get_historical_weather(
             city_weather.append(
                 {
                     "city": row.Index,
-                    "day": datetime.fromtimestamp(forecast["current"]["dt"]),
+                    "day": datetime.fromtimestamp(forecast["current"]["dt"]).date(),
                     "temp": temp,
                     "temp_min": temp_min,
                     "temp_max": temp_max,
@@ -228,6 +234,28 @@ def analysis_tasks(weather_df: pd.DataFrame):
     max_temps.loc[max_temp_delta_index].to_csv(
         path_or_buf=(output_folder + r"\biggest_max_temp_change_city_and_day.csv")
     )
+
+
+def save_plots(weather: pd.DataFrame) -> None:
+    grouped = weather.groupby(["city"])
+    for label, group in grouped:
+        file_path = f"{output_folder}\\{label[0]}\\{label[1]}\\{label[0]}_{label[1]}_temp_plot.png"
+        save_plot(label, group, file_path)
+
+
+def save_plot(label: Tuple, group: pd.DataFrame, file_path: str) -> None:
+    plt.xlabel("Day")
+    plt.ylabel("Temperature")
+    plt.title(f"{label}: daily high and low max temperature")
+    plt.grid(True, which="both")
+    days = group["day"]
+    temp_min = group["temp_min"]
+    temp_max = group["temp_max"]
+    plt.plot(days, temp_min, label="Daily min temp.", c="blue")
+    plt.plot(days, temp_max, label="Daily max temp.", c="red")
+    plt.legend()
+    plt.savefig(file_path)
+    plt.clf()
 
 
 if __name__ == "__main__":
