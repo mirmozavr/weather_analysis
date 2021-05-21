@@ -7,6 +7,7 @@ from multiprocessing import Pool, cpu_count
 from typing import List, Tuple
 
 import aiohttp
+import click
 import pandas as pd
 from geopy.geocoders import Nominatim
 from keys import API_OW
@@ -16,8 +17,6 @@ pd.set_option("isplay.max_rows", None)
 pd.set_option("display.max_columns", 10)
 pd.set_option("display.width", 1600)
 
-base_folder = r"D:\Programms\WA\WA\data"
-output_folder = r"D:\Programms\WA\WA\data"
 
 ow_url_forecast = "http://api.openweathermap.org/data/2.5/forecast"
 ow_url_historical = "http://api.openweathermap.org/data/2.5/onecall/timemachine"
@@ -27,9 +26,38 @@ geolocator = Nominatim(user_agent="nvm")
 reverse_coords = partial(geolocator.reverse, language="en", timeout=5)
 
 
-def main():
-    df = prepare_data(base_folder)
+@click.command()
+@click.option(
+    "--input-folder",
+    "-if",
+    default=lambda: os.getcwd(),
+    help="Enter a path to 'Hotels.zip'. Current working directory is used by default",
+)
+@click.option(
+    "--output-folder",
+    "-of",
+    default=lambda: os.getcwd(),
+    help="Enter a path to the output data. Current working directory is used by default",
+)
+def main(input_folder, output_folder):
+    r"""Weather analysis.
+
+    The purpose of this programm is to process provided data (`hotels.zip`),
+    clear corrupted data, add full addresses using `geopy` module,
+    calculate coordinates for city centres and gather weather data
+    for 11 days period from openweathermap.org,
+    calculate: hottest day and city, coldest day and city,
+    city with largest max temperature change, city and day with largest
+    min and max temperature change, draw plots for max and min temperatures for
+    every city centre.
+    All gathered and calculated data will be saved at the output folder and will
+    have following structure: `{output_folder}\{country}\{city}\`
+
+
+    """
+    df = prepare_data(input_folder)
     df.drop(["Id", "index"], axis=1, inplace=True)
+    df = df[:10]
 
     # fill address and fix incorrect country code and city
     result = run_pool_of_address_workers(df)
@@ -37,15 +65,15 @@ def main():
     df["Country"] = [item[1] for item in result]
     df["City"] = [item[2] for item in result]
 
-    export_address_data(df)
+    export_address_data(df, output_folder)
 
     city_centres = calc_city_centres(df)
 
     weather = asyncio.run(get_weather(city_centres))
 
-    analysis_tasks(weather)
+    analysis_tasks(weather, output_folder)
 
-    save_plots(weather)
+    save_plots(weather, output_folder)
 
 
 def prepare_data(base: str) -> pd.DataFrame:
@@ -86,7 +114,7 @@ def address_worker(data: Tuple) -> Tuple:
     return location.address, country_code, city
 
 
-def export_address_data(df: pd.DataFrame) -> None:
+def export_address_data(df: pd.DataFrame, output_folder: str) -> None:
     grouped = df.groupby(["Country", "City"])
     chunk_size = 100
     for label, group in grouped:
@@ -202,7 +230,7 @@ async def get_historical_weather(
     return city_weather
 
 
-def analysis_tasks(weather_df: pd.DataFrame):
+def analysis_tasks(weather_df: pd.DataFrame, output_folder: str):
     # city/day with max and min temp
     temp_column = weather_df["temp"]
     min_temp_index = temp_column.idxmin()
@@ -236,7 +264,7 @@ def analysis_tasks(weather_df: pd.DataFrame):
     )
 
 
-def save_plots(weather: pd.DataFrame) -> None:
+def save_plots(weather: pd.DataFrame, output_folder: str) -> None:
     grouped = weather.groupby(["city"])
     for label, group in grouped:
         file_path = f"{output_folder}\\{label[0]}\\{label[1]}\\{label[0]}_{label[1]}_temp_plot.png"

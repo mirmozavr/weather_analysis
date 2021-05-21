@@ -24,3 +24,5 @@ geopy==2.1.0
 pandas==1.2.4
 aiohttp==3.7.4.post0
 async-timeout==3.0.1
+matplotlib==3.4.2
+click==8.0.1
