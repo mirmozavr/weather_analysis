@@ -182,14 +182,14 @@ async def get_forecast(
     ) as resp:
         city_weather = []
         forecast = await resp.json()
-        for day in (forecast["list"][index] for index in (0, 8, 16, 24, 32, 39)):
+        for item in (forecast["list"][index] for index in (0, 8, 16, 24, 32, 39)):
             city_weather.append(
                 {
                     "city": row.Index,
-                    "day": datetime.fromtimestamp(day["dt"]).date(),
-                    "temp": day["main"]["temp"],
-                    "temp_min": day["main"]["temp_min"],
-                    "temp_max": day["main"]["temp_max"],
+                    "day": datetime.fromtimestamp(item["dt"]).date(),
+                    "temp": item["main"]["temp"],
+                    "temp_min": item["main"]["temp_min"],
+                    "temp_max": item["main"]["temp_max"],
                 }
             )
         return city_weather
@@ -267,7 +267,10 @@ def analysis_tasks(weather_df: pd.DataFrame, output_folder: str):
 def save_plots(weather: pd.DataFrame, output_folder: str) -> None:
     grouped = weather.groupby(["city"])
     for label, group in grouped:
-        file_path = f"{output_folder}\\{label[0]}\\{label[1]}\\{label[0]}_{label[1]}_temp_plot.png"
+        country, city = label[0], label[1]
+        file_path = (
+            f"{output_folder}\\{country}\\{city}\\{country}_{city}_temp_plot.png"
+        )
         save_plot(label, group, file_path)
 
 
