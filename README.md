@@ -15,4 +15,6 @@ Options:
                              directory is used by default
   * -of, --output-folder TEXT  Enter a path to the output data. Current working
                              directory is used by default
+  * -p, --processes INTEGER    Number of processes to run
+
   * --help                     Show this message and exit.

@@ -3,7 +3,7 @@ import os
 import zipfile
 from datetime import datetime, timedelta
 from functools import partial
-from multiprocessing import Pool, cpu_count
+from multiprocessing import Pool
 from typing import List, Tuple
 
 import aiohttp
@@ -39,7 +39,14 @@ reverse_coords = partial(geolocator.reverse, language="en", timeout=5)
     default=lambda: os.getcwd(),
     help="Enter a path to the output data. Current working directory is used by default",
 )
-def main(input_folder, output_folder):
+@click.option(
+    "--processes",
+    "-p",
+    type=int,
+    default=lambda: os.cpu_count(),
+    help="Number of processes to run",
+)
+def main(input_folder, output_folder, processes):
     r"""Weather analysis.
 
     The purpose of this programm is to process provided data (`hotels.zip`),
@@ -57,10 +64,10 @@ def main(input_folder, output_folder):
     """
     df = prepare_data(input_folder)
     df.drop(["Id", "index"], axis=1, inplace=True)
-    df = df[:10]
+    df = df[:10]  # !!!!!!!! shortened
 
     # fill address and fix incorrect country code and city
-    result = run_pool_of_address_workers(df)
+    result = run_pool_of_address_workers(df, processes)
     df["Address"] = [item[0] for item in result]
     df["Country"] = [item[1] for item in result]
     df["City"] = [item[2] for item in result]
@@ -94,8 +101,8 @@ def prepare_data(base: str) -> pd.DataFrame:
     return df
 
 
-def run_pool_of_address_workers(df: pd.DataFrame):
-    with Pool(processes=cpu_count()) as pool:
+def run_pool_of_address_workers(df: pd.DataFrame, processes):
+    with Pool(processes=processes) as pool:
         return pool.map(address_worker, zip(df["Address"], df["City"]))
 
 
@@ -118,14 +125,15 @@ def export_address_data(df: pd.DataFrame, output_folder: str) -> None:
     grouped = df.groupby(["Country", "City"])
     chunk_size = 100
     for label, group in grouped:
-        path = f"{output_folder}\\{label[0]}\\{label[1]}"
+        country, city = label[0], label[1]
+        path = f"{output_folder}\\{country}\\{city}"
         os.makedirs(path, exist_ok=True)
 
         list_of_chunks = (
             group.iloc[i : i + chunk_size] for i in range(0, len(group), chunk_size)
         )
         for num, chunk in enumerate(list_of_chunks):
-            file_name = f"{path}\\{label[0]}_{label[1]}_hotels_p{num:03d}.csv"
+            file_name = f"{path}\\{country}_{city}_hotels_p{num:03d}.csv"
             chunk.to_csv(
                 path_or_buf=file_name,
                 columns=["Name", "Country", "City", "Address", "Latitude", "Longitude"],
