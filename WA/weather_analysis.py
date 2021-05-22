@@ -64,7 +64,7 @@ def main(input_folder, output_folder, processes):
     """
     df = prepare_data(input_folder)
     df.drop(["Id", "index"], axis=1, inplace=True)
-    df = df[:10]  # !!!!!!!! shortened
+    df = df[1500:1520]  # !!!!!!!! shortened
 
     # fill address and fix incorrect country code and city
     result = run_pool_of_address_workers(df, processes)
@@ -87,9 +87,7 @@ def prepare_data(base: str) -> pd.DataFrame:
     #  read zip
     with zipfile.ZipFile(base + "\\hotels.zip") as myzip:
         files = [item.filename for item in myzip.infolist()]
-        df = pd.concat(
-            [pd.read_csv(myzip.open(file)) for file in files[:1]]  # !!!!!!!! shortened
-        )
+        df = pd.concat([pd.read_csv(myzip.open(file)) for file in files])
 
     # preprocess dataset
     df["Latitude"] = pd.to_numeric(df["Latitude"], errors="coerce")
@@ -168,11 +166,13 @@ def calc_city_centres(df: pd.DataFrame) -> pd.DataFrame:
 
 
 async def get_weather(city_centres: pd.DataFrame) -> pd.DataFrame:
-    weather = []
+    tasks = []
     async with aiohttp.ClientSession() as session:
-        for row in city_centres[:3].itertuples():  # !!shortened
-            weather += await get_historical_weather(session, row)
-            weather += await get_forecast(session, row)
+        for row in city_centres.itertuples():
+            tasks.append(asyncio.create_task(get_historical_weather(session, row)))
+            tasks.append(asyncio.create_task(get_forecast(session, row)))
+        result = await asyncio.gather(*tasks)
+        weather = [row for item in result for row in item]
         return pd.DataFrame(weather)
 
 
