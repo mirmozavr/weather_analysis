@@ -285,7 +285,7 @@ def save_plots(weather: pd.DataFrame, output_folder: str) -> None:
 def save_plot(label: Tuple, group: pd.DataFrame, file_path: str) -> None:
     plt.xlabel("Day")
     plt.ylabel("Temperature")
-    plt.title(f"{label}: daily high and low max temperature")
+    plt.title(f"{label}: daily min and max temperature")
     plt.grid(True, which="both")
     days = group["day"]
     temp_min = group["temp_min"]
