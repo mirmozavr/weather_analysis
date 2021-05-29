@@ -61,14 +61,9 @@ def main(input_folder, output_folder, processes):
     have following structure: `output_folder\country\city\`
     """
     df = prepare_data(input_folder)
-    df.drop(["Id", "index"], axis=1, inplace=True)
-    df = df[2330:2332]  # !!!!!!!! shortened
+    df = df[2320:2322]  # !!!!!!!! shortened
 
-    # fill address and fix incorrect country code and city
-    result = run_pool_of_address_workers(df, processes)
-    df["Address"] = [item[0] for item in result]
-    df["Country"] = [item[1] for item in result]
-    df["City"] = [item[2] for item in result]
+    fill_address(df, processes)
 
     export_address_data(df, output_folder)
 
@@ -107,7 +102,25 @@ def prepare_data(base: str) -> pd.DataFrame:
 
     df["Address"] = df["Latitude"].astype("str") + ", " + df["Longitude"].astype("str")
     df.reset_index(inplace=True)
+    df.drop(["Id", "index"], axis=1, inplace=True)
+
     return df
+
+
+def fill_address(df: pd.DataFrame, processes: int) -> None:
+    """Fill addresses in given dataframe.
+
+    Incorrect country and city data will be fixed at the process.
+
+    Args:
+        df (pd.DataFrame): Dataframe to fill with addresses.
+        processes (int): Number of processes to run.
+    """
+    # fill address and fix incorrect country code and city
+    result = run_pool_of_address_workers(df, processes)
+    df["Address"] = [item[0] for item in result]
+    df["Country"] = [item[1] for item in result]
+    df["City"] = [item[2] for item in result]
 
 
 def run_pool_of_address_workers(df: pd.DataFrame, processes: int) -> List:
