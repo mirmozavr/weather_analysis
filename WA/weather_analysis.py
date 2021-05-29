@@ -1,14 +1,14 @@
 import asyncio
 import os
-import zipfile
 from datetime import datetime, timedelta
 from functools import partial
-from multiprocessing import Pool
 from typing import List, Tuple
 
 import aiohttp
 import click
 import pandas as pd
+from data_structures import CityCentres, Hotels
+from export_utility import export_address_data
 from geopy.geocoders import Nominatim
 from keys import API_OW
 from matplotlib import pyplot as plt
@@ -60,176 +60,19 @@ def main(input_folder, output_folder, processes):
     All gathered and calculated data will be saved at the output folder and will
     have following structure: `output_folder\country\city\`
     """
-    df = prepare_data(input_folder)
-    df = df[2320:2322]  # !!!!!!!! shortened
+    hotels = Hotels(input_folder)
 
-    fill_address(df, processes)
+    hotels.fill_address(processes)
 
-    export_address_data(df, output_folder)
+    export_address_data(hotels, output_folder)
 
-    city_centres = calc_city_centres(df)
+    city_centres = CityCentres(hotels)
 
-    weather = asyncio.run(get_weather(city_centres))
+    weather = asyncio.run(get_weather(city_centres.df))
 
     analysis_tasks(weather, output_folder)
 
     save_plots(weather, output_folder)
-
-
-def prepare_data(base: str) -> pd.DataFrame:
-    """Form a dataframe from csv data in `hotels.zip` file at given folder.
-
-    Lines without one of the coordinates and
-    lines with invalid coordinates (not numeric, latitude more than 90 or less
-    than -90, longitude more than 180 or less than -180),
-    will be skipped
-
-    Args:
-        base (str): The path to `hotels.zip` file.
-
-    Returns:
-        Dataframe with valid coordinates.
-    """
-    #  read zip
-    with zipfile.ZipFile(base + "\\hotels.zip") as myzip:
-        files = [item.filename for item in myzip.infolist()]
-        df = pd.concat([pd.read_csv(myzip.open(file)) for file in files])
-
-    # preprocess dataset
-    df["Latitude"] = pd.to_numeric(df["Latitude"], errors="coerce")
-    df["Longitude"] = pd.to_numeric(df["Longitude"], errors="coerce")
-    df = df[(abs(df["Latitude"]) < 90) & (abs(df["Longitude"]) < 180)]
-
-    df["Address"] = df["Latitude"].astype("str") + ", " + df["Longitude"].astype("str")
-    df.reset_index(inplace=True)
-    df.drop(["Id", "index"], axis=1, inplace=True)
-
-    return df
-
-
-def fill_address(df: pd.DataFrame, processes: int) -> None:
-    """Fill addresses in given dataframe.
-
-    Incorrect country and city data will be fixed at the process.
-
-    Args:
-        df (pd.DataFrame): Dataframe to fill with addresses.
-        processes (int): Number of processes to run.
-    """
-    # fill address and fix incorrect country code and city
-    result = run_pool_of_address_workers(df, processes)
-    df["Address"] = [item[0] for item in result]
-    df["Country"] = [item[1] for item in result]
-    df["City"] = [item[2] for item in result]
-
-
-def run_pool_of_address_workers(df: pd.DataFrame, processes: int) -> List:
-    """Run address_worker method in multiprocessing pool.
-
-    Form a list of correct addresses, country codes and cities for given dataframe
-    in multiprocessing mode.
-
-    Args:
-        df (pd.DataFrame): Dataframe to process.
-        processes (int): Number of processes to run.
-
-    Returns:
-        List of tuples with address, county code and city for every line in dataframe.
-    """
-    with Pool(processes=processes) as pool:
-        return pool.map(address_worker, zip(df["Address"], df["City"]))
-
-
-def address_worker(data: Tuple) -> Tuple:
-    """Get the address, country code and city for given coordinates.
-
-    Args:
-        data (Tuple): Coordinates concatenated as strings and original `City`
-
-    Returns:
-        Tuple with valid address, country code and city for given coordinates.
-    """
-    coordinates_as_string = data[0]
-    original_city = data[1]
-    location = reverse_coords(coordinates_as_string)
-    country_code = location.raw["address"]["country_code"].upper()
-
-    if "city" in location.raw["address"]:
-        city = location.raw["address"]["city"]
-    elif "town" in location.raw["address"]:
-        city = location.raw["address"]["town"]
-    elif "village" in location.raw["address"]:
-        city = location.raw["address"]["village"]
-    else:
-        city = original_city
-    return location.address, country_code, city
-
-
-def export_address_data(df: pd.DataFrame, output_folder: str) -> None:
-    r"""Write hotels data.
-
-    Hotels data will be written in `CSV` files with 100 records or less.
-    Files will be structured as follows `output_folder\country\city\`.
-
-    Args:
-        df (pd.DataFrame): Dataframe to export.
-        output_folder (str): The path to desired folder for data export.
-    """
-    grouped = df.groupby(["Country", "City"])
-    chunk_size = 100
-    for label, group in grouped:
-        country, city = label[0], label[1]
-        path = f"{output_folder}\\{country}\\{city}"
-        os.makedirs(path, exist_ok=True)
-
-        list_of_chunks = (
-            group.iloc[i : i + chunk_size] for i in range(0, len(group), chunk_size)
-        )
-        for num, chunk in enumerate(list_of_chunks):
-            file_name = f"{path}\\{country}_{city}_hotels_p{num:03d}.csv"
-            chunk.to_csv(
-                path_or_buf=file_name,
-                columns=["Name", "Country", "City", "Address", "Latitude", "Longitude"],
-            )
-
-
-def calc_city_centres(df: pd.DataFrame) -> pd.DataFrame:
-    """Form the dataframe with calculated coordinates for city centre.
-
-    City centre coordinates are average of one maximum and one minimum latitude and longitude
-    for the hotels in this city.
-
-    Args:
-        df (pd.DataFrame): Dataframe with hotels data.
-
-    Returns:
-        Dataframe grouped by Country and City with coordinates of city centre.
-    """
-    # find max and min city center coordinates
-    city_group = df.groupby(["Country", "City"])
-    min_lat_and_lon = city_group.min()
-    min_lat_and_lon.rename(
-        columns={"Latitude": "min_lat", "Longitude": "min_lon"}, inplace=True
-    )
-    max_lat_and_lon = city_group.max()
-    max_lat_and_lon.rename(
-        columns={"Latitude": "max_lat", "Longitude": "max_lon"}, inplace=True
-    )
-    city_centres = pd.concat(
-        [
-            min_lat_and_lon.loc[:, ["min_lat", "min_lon"]],
-            max_lat_and_lon.loc[:, ["max_lat", "max_lon"]],
-        ],
-        axis=1,
-    )
-    # calculate average of max and min city centre coordinates
-    city_centres["center_lat"] = (
-        city_centres["min_lat"] + city_centres["max_lat"]
-    ) * 0.5
-    city_centres["center_lon"] = (
-        city_centres["min_lon"] + city_centres["max_lon"]
-    ) * 0.5
-    return city_centres
 
 
 async def get_weather(city_centres: pd.DataFrame) -> pd.DataFrame:
