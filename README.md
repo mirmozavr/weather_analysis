@@ -35,3 +35,5 @@ To specify input folder, output folder and number of processes type:
 
 ### Testing
 Tests are prepared with Pytest module. To run tests type `pytest` at the command line. More information at  [docs.pytest.org](https://docs.pytest.org)
+To run tests and get coverage report type `pytest --cov=WA --cov-report=html
+`.
