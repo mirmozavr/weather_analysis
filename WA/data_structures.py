@@ -101,7 +101,7 @@ def prepare_data(base: str) -> pd.DataFrame:
         df.drop(["Id", "index"], axis=1, inplace=True)
     except KeyError:
         quit()
-    return df[300:310]  # SHORTENED!!!!
+    return df  # [300:310]  # SHORTENED!!!!
 
 
 def run_pool_of_address_workers(df: pd.DataFrame, processes: int) -> List:
