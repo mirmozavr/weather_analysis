@@ -76,7 +76,7 @@ def prepare_data(base: str) -> pd.DataFrame:
     """
     #  read zip
     try:
-        with zipfile.ZipFile(base + "\\hotels.zip") as myzip:
+        with zipfile.ZipFile(base + "/hotels.zip") as myzip:
             files = [
                 item.filename
                 for item in myzip.infolist()

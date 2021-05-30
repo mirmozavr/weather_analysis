@@ -14,7 +14,7 @@ path = os.path.dirname(__file__)
 
 
 def test_hotels_class_filters_data():
-    hotels = Hotels(path + r"\test_hotels_class")
+    hotels = Hotels(path + "/test_hotels_class")
     correct_hotels = {
         "Name": ["Hotel Spa Villa Olimpica Suites"],
         "Country": ["ES"],
@@ -28,7 +28,7 @@ def test_hotels_class_filters_data():
 
 
 def test_calc_city_centres():
-    hotels = Hotels(path + r"\test_calc_city_centres")
+    hotels = Hotels(path + "/test_calc_city_centres")
     centres = CityCentres(hotels)
     correct_centre_coordinates = {
         "min_lat": {("UK", "Sallisaw"): 30.0, ("US", "Coalville"): 20.0},
